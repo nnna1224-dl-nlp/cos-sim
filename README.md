@@ -22,6 +22,6 @@ presets:
 ## 使用法
 uvを使用して以下のように実行する．
 ```
-uv run main.py --preset [preset-name]
+uv run main.py --preset <preset-name>
 ```
 
