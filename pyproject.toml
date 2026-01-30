@@ -1,0 +1,16 @@
+[project]
+name = "cos-sim"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fugashi>=1.5.2",
+    "ipadic>=1.0.0",
+    "numpy>=2.4.1",
+    "protobuf>=6.33.5",
+    "pyyaml>=6.0.3",
+    "sentence-transformers>=5.2.2",
+    "sentencepiece>=0.2.1",
+    "unidic-lite>=1.0.8",
+]
