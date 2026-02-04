@@ -3,7 +3,7 @@ import argparse
 import yaml
 import os
 from sentence_transformers import SentenceTransformer, util
-from scipy.stats import bootstrap
+from scipy.stats import bootstrap, ttest_rel
 
 def evaluate(candidates, references, model):
     if len(candidates) != len(references):
@@ -18,9 +18,10 @@ def evaluate(candidates, references, model):
     cosine_scores = util.pairwise_cos_sim(embeddings_pred, embeddings_ref)
     return np.array(cosine_scores.cpu().tolist())
 
-def calculate_bootstrap_significance(scores_base, scores_target, n_resamples=5000):
+def calculate_statistics(scores_base, scores_target, n_resamples=5000):
     diffs = scores_target - scores_base
     
+    # ブートストラップ法による信頼区間の計算
     res = bootstrap((diffs,), np.mean, 
                     n_resamples=n_resamples, 
                     confidence_level=0.95, 
@@ -28,14 +29,21 @@ def calculate_bootstrap_significance(scores_base, scores_target, n_resamples=500
     
     ci_low = res.confidence_interval.low
     ci_high = res.confidence_interval.high
-    is_significant = (ci_low > 0) or (ci_high < 0)
+    
+    # 信頼区間が0をまたいでいないかチェック
+    is_significant_ci = (ci_low > 0) or (ci_high < 0)
+
+    # 対応のあるt検定によるp値の計算
+    # H0: 平均差 = 0
+    t_stat, p_value = ttest_rel(scores_target, scores_base)
     
     return {
         "mean": np.mean(scores_target),
         "mean_diff": np.mean(diffs),
         "ci_low": ci_low,
         "ci_high": ci_high,
-        "is_significant": is_significant
+        "is_significant_ci": is_significant_ci,
+        "p_value": p_value
     }
 
 def load_and_clean(path):
@@ -62,22 +70,28 @@ def run_evaluation(base_path, target_paths, ref_path, model_name):
         lines_target = load_and_clean(path)
         scores_target = evaluate(lines_target, lines_ref, model)
         
-        stat = calculate_bootstrap_significance(scores_base, scores_target)
+        stat = calculate_statistics(scores_base, scores_target)
         stat['name'] = name
         results.append(stat)
 
     # 結果表示
     print(f"\nBASE: {base_path}")
-    print("="*60)
-    print(f"{'Method':<20} | {'Mean':<8} | {'Diff':<8} | {'95% CI':<18} | {'Sig.'}")
-    print("-" * 60)
-    print(f"{'BASE':<20} | {base_mean:.4f} | {'-':<8} | {'-':<18} | -")
+    print("="*85)
+    print(f"{'Method':<20} | {'Mean':<6} | {'Diff':<7} | {'95% CI (Bootstrap)':<20} | {'p-value (t-test)'}")
+    print("-" * 85)
+    print(f"{'BASE':<20} | {base_mean:.4f} | {'-':<7} | {'-':<20} | -")
     
     for r in results:
-        sig_mark = "YES" if r['is_significant'] else "no"
-        ci_str = f"[{r['ci_low']:.3f}, {r['ci_high']:.3f}]"
-        print(f"{r['name']:<20} | {r['mean']:.4f} | {r['mean_diff']:+.4f} | {ci_str:<18} | {sig_mark}")
-    print("="*60)
+        # CIによる有意判定マーク（視覚補助）
+        sig_mark = "*" if r['is_significant_ci'] else ""
+        ci_str = f"[{r['ci_low']:.4f}, {r['ci_high']:.4f}]{sig_mark}"
+        
+        # p値のフォーマット
+        p_val_str = f"{r['p_value']:.4e}" if r['p_value'] < 0.0001 else f"{r['p_value']:.4f}"
+        
+        print(f"{r['name']:<20} | {r['mean']:.4f} | {r['mean_diff']:+.4f} | {ci_str:<20} | {p_val_str}")
+    print("="*85)
+    print("Note: '*' in CI indicates the interval excludes zero (Significant at alpha=0.05).")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SentencBERTのcos類似度を有意差検定付きで比較")
