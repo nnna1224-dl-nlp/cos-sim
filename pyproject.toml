@@ -7,9 +7,11 @@ requires-python = ">=3.12"
 dependencies = [
     "fugashi>=1.5.2",
     "ipadic>=1.0.0",
+    "matplotlib>=3.10.8",
     "numpy>=2.4.1",
     "protobuf>=6.33.5",
     "pyyaml>=6.0.3",
+    "seaborn>=0.13.2",
     "sentence-transformers>=5.2.2",
     "sentencepiece>=0.2.1",
     "unidic-lite>=1.0.8",

@@ -4,6 +4,8 @@ import yaml
 import os
 from sentence_transformers import SentenceTransformer, util
 from scipy.stats import bootstrap, ttest_rel
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def evaluate(candidates, references, model):
     if len(candidates) != len(references):
@@ -53,7 +55,46 @@ def load_and_clean(path):
         lines = f.readlines()
     return [s.strip().replace(" ", "").replace("　", "") for s in lines]
 
-def run_evaluation(base_path, target_paths, ref_path, model_name):
+def plot_distributions(results_data, base_scores, output_file):
+    """
+    results_data: {name: target_scores} dictionary
+    base_scores: baseline score array
+    """
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    sns.set_theme(style="whitegrid")
+    num_targets = len(results_data)
+    
+    if num_targets == 0:
+        print("No targets to plot.")
+        return
+
+    # Use squeeze=False to always return a 2D array of axes, simplifying logic
+    fig, axes = plt.subplots(num_targets, 2, figsize=(12, 4 * num_targets), squeeze=False)
+    
+    for i, (name, scores) in enumerate(results_data.items()):
+        ax_density = axes[i, 0]
+        ax_diff = axes[i, 1]
+
+        # Left: Score Density Comparison
+        sns.kdeplot(base_scores, ax=ax_density, label="Base", fill=True)
+        sns.kdeplot(scores, ax=ax_density, label=name, fill=True)
+        ax_density.set_title(f"Score Density: Base vs {name}")
+        ax_density.legend()
+
+        # Right: Difference Distribution (Target - Base)
+        diffs = scores - base_scores
+        sns.histplot(diffs, ax=ax_diff, kde=True, color='green')
+        ax_diff.axvline(0, color='red', linestyle='--') # Zero line
+        ax_diff.set_title(f"Difference Distribution ({name} - Base)")
+        ax_diff.set_xlabel("Score Delta")
+
+    plt.tight_layout()
+    plt.savefig(output_file)
+    print(f"\nDistribution plot saved as: {output_file}")
+
+def run_evaluation(base_path, target_paths, ref_path, model_name, out_path):
     print(f"Loading model: {model_name}...")
     model = SentenceTransformer(model_name)
 
@@ -65,10 +106,13 @@ def run_evaluation(base_path, target_paths, ref_path, model_name):
     base_mean = np.mean(scores_base)
 
     results = []
+    raw_score_dict = {}
     for name, path in target_paths.items():
         print(f"Evaluating {name}...")
         lines_target = load_and_clean(path)
         scores_target = evaluate(lines_target, lines_ref, model)
+
+        raw_score_dict[name] = scores_target
         
         stat = calculate_statistics(scores_base, scores_target)
         stat['name'] = name
@@ -93,12 +137,18 @@ def run_evaluation(base_path, target_paths, ref_path, model_name):
     print("="*85)
     print("Note: '*' in CI indicates the interval excludes zero (Significant at alpha=0.05).")
 
+    if out_path is not None:
+        plot_distributions(raw_score_dict, scores_base, out_path)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SentencBERTのcos類似度を有意差検定付きで比較")
     parser.add_argument("--preset", type=str, help="設定ファイル内のプリセット名")
     parser.add_argument("--base", type=str, help="基準(Baseline)のファイルパス")
     parser.add_argument("--targets", nargs='+', help="比較対象ファイルパス（例: name1:path1 name2:path2）")
     parser.add_argument("--ref", type=str, help="参照訳(Ground Truth)のファイルパス")
+    parser.add_argument("--out", action="store_true", help="分布画像を出力するか")
+    parser.add_argument("--out-filepath", type=str, default="out/score_distribution.png", help="分布画像出力先ファイルパス")
     
     args = parser.parse_args()
 
@@ -132,5 +182,6 @@ if __name__ == "__main__":
         parser.print_help()
         exit(1)
 
-    run_evaluation(base_file, target_files, ref_file, model_name)
-
+    if not args.out:
+        args.out_filepath = None
+    run_evaluation(base_file, target_files, ref_file, model_name, args.out_filepath)
